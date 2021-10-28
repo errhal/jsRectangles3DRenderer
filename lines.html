@@ -1,0 +1,425 @@
+<html>
+<body onkeydown="detectKey(event)" style="margin: 0;">
+<canvas id="viewport" style="width:100%; height: 100%;"></canvas>
+</body>
+</html>
+
+<script>
+
+    var cuboids = [];
+    var fov = 0.6;
+
+    // Translations
+    var translationMatrix = new Matrix4([
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, 0,
+        0, 0, 0, 1
+    ]);
+
+    function flushTranslationMatrix() {
+        translationMatrix.elements[12] = 0;
+        translationMatrix.elements[13] = 0;
+        translationMatrix.elements[14] = 0;
+    }
+
+    function changeTranslationMatrix(vector) {
+        var matrix = new Matrix4(globalRotationMatrix.elements.slice());
+        var vec = new Matrix4([
+            vector[0], 0, 0, 0,
+            vector[1], 0, 0, 0,
+            vector[2], 0, 0, 0,
+            vector[3], 0, 0, 0
+        ]);
+//        vec.multiplyByMatrix(changeRotationX(-Math.acos(rotateXMatrix.elements[5])));
+//        vec.multiplyByMatrix(changeRotationY(-Math.acos(rotateYMatrix.elements[0])));
+//        vec.multiplyByMatrix(changeRotationZ(-Math.acos(rotateZMatrix.elements[0])));
+        matrix.multiplyMatrices(matrix, vec);
+
+        translationMatrix.elements[12] += matrix.elements[0];
+        translationMatrix.elements[13] += matrix.elements[4];
+        translationMatrix.elements[14] += matrix.elements[8];
+//        changeRotationX(angleX);
+//        changeRotationY(angleY);
+//        changeRotationZ(angleZ);
+    }
+
+    // Rotation around X axis
+    var angleX = 0;
+    var rotateXMatrix = new Matrix4([
+        1, 0, 0, 0,
+        0, Math.cos(0), Math.sin(0), 0,
+        0, -Math.sin(0), Math.cos(0), 0,
+        0, 0, 0, 1
+    ]);
+
+    function changeRotationX(angle) {
+        rotateXMatrix.elements[5] = Math.cos(angle / 180 * Math.PI);
+        rotateXMatrix.elements[6] = Math.sin(angle / 180 * Math.PI);
+        rotateXMatrix.elements[9] = -Math.sin(angle / 180 * Math.PI);
+        rotateXMatrix.elements[10] = Math.cos(angle / 180 * Math.PI);
+        return rotateXMatrix;
+    }
+
+    // Rotation around Y axis
+    var angleY = 0;
+    var rotateYMatrix = new Matrix4([
+        Math.cos(0), 0, Math.sin(0), 0,
+        0, 1, 0, 0,
+        -Math.sin(0), 0, Math.cos(0), 0,
+        0, 0, 0, 1
+    ]);
+
+    function changeRotationY(angle) {
+        rotateYMatrix.elements[0] = Math.cos(angle / 180 * Math.PI);
+        rotateYMatrix.elements[2] = Math.sin(angle / 180 * Math.PI);
+        rotateYMatrix.elements[8] = -Math.sin(angle / 180 * Math.PI);
+        rotateYMatrix.elements[10] = Math.cos(angle / 180 * Math.PI);
+        return rotateYMatrix;
+    }
+
+    // Rotation around Z axis
+    var angleZ = 0;
+    var rotateZMatrix = new Matrix4([
+        Math.cos(0), Math.sin(0), 0, 0,
+        -Math.sin(0), Math.cos(0), 0, 0,
+        0, 0, 1, 0,
+        0, 0, 0, 1
+    ]);
+
+    function changeRotationZ(angle) {
+        rotateZMatrix.elements[0] = Math.cos(angle / 180 * Math.PI);
+        rotateZMatrix.elements[1] = Math.sin(angle / 180 * Math.PI);
+        rotateZMatrix.elements[4] = -Math.sin(angle / 180 * Math.PI);
+        rotateZMatrix.elements[5] = Math.cos(angle / 180 * Math.PI);
+        return rotateZMatrix;
+    }
+
+    // Global rotation
+    var globalRotationMatrix = new Matrix4([
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, 0,
+        0, 0, 0, 1
+    ]);
+
+    var inverseGlobalRotationMatrix = new Matrix4([
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, 0,
+        0, 0, 0, 1
+    ]);
+
+    // Scaling
+    var scaleMatrix = new Matrix4([
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, 0,
+        0, 0, 0, 1
+    ]);
+
+    function changeScaleMatrix(diff) {
+        if (diff) {
+            if (scaleMatrix.elements[0] >= 1) {
+                scaleMatrix.elements[0] *= 2;
+                scaleMatrix.elements[5] *= 2;
+                scaleMatrix.elements[10] *= 2;
+            } else {
+                scaleMatrix.elements[0] += 0.1;
+                scaleMatrix.elements[5] += 0.1;
+                scaleMatrix.elements[10] += 0.1;
+            }
+        } else {
+            if (scaleMatrix.elements[0] <= 0.1) {
+            } else if (scaleMatrix.elements[0] >= 1) {
+                scaleMatrix.elements[0] /= 2;
+                scaleMatrix.elements[5] /= 2;
+                scaleMatrix.elements[10] /= 2;
+            } else {
+                scaleMatrix.elements[0] -= 0.1;
+                scaleMatrix.elements[5] -= 0.1;
+                scaleMatrix.elements[10] -= 0.1;
+            }
+        }
+    }
+
+    function zoomIn() {
+        if (fov > 0.1) fov -= 0.05;
+    }
+
+    function zoomOut() {
+        if (fov < 0.4) fov += 0.05;
+    }
+
+    function Matrix4(elements) {
+        this.elements = elements;
+
+        this.multiplyMatrices = function (a, b) {
+            var ae = a.elements;
+            var be = b.elements;
+            var te = this.elements;
+
+            var a11 = ae[0], a21 = ae[4], a31 = ae[8], a41 = ae[12];
+            var a12 = ae[1], a22 = ae[5], a32 = ae[9], a42 = ae[13];
+            var a13 = ae[2], a23 = ae[6], a33 = ae[10], a43 = ae[14];
+            var a14 = ae[3], a24 = ae[7], a34 = ae[11], a44 = ae[15];
+
+            var b11 = be[0], b21 = be[4], b31 = be[8], b41 = be[12];
+            var b12 = be[1], b22 = be[5], b32 = be[9], b42 = be[13];
+            var b13 = be[2], b23 = be[6], b33 = be[10], b43 = be[14];
+            var b14 = be[3], b24 = be[7], b34 = be[11], b44 = be[15];
+
+            te[0] = a11 * b11 + a12 * b21 + a13 * b31 + a14 * b41;
+            te[1] = a11 * b12 + a12 * b22 + a13 * b32 + a14 * b42;
+            te[2] = a11 * b13 + a12 * b23 + a13 * b33 + a14 * b43;
+            te[3] = a11 * b14 + a12 * b24 + a13 * b34 + a14 * b44;
+
+            te[4] = a21 * b11 + a22 * b21 + a23 * b31 + a24 * b41;
+            te[5] = a21 * b12 + a22 * b22 + a23 * b32 + a24 * b42;
+            te[6] = a21 * b13 + a22 * b23 + a23 * b33 + a24 * b43;
+            te[7] = a21 * b14 + a22 * b24 + a23 * b34 + a24 * b44;
+
+            te[8] = a31 * b11 + a32 * b21 + a33 * b31 + a34 * b41;
+            te[9] = a31 * b12 + a32 * b22 + a33 * b32 + a34 * b42;
+            te[10] = a31 * b13 + a32 * b23 + a33 * b33 + a34 * b43;
+            te[11] = a31 * b14 + a32 * b24 + a33 * b34 + a34 * b44;
+
+            te[12] = a41 * b11 + a42 * b21 + a43 * b31 + a44 * b41;
+            te[13] = a41 * b12 + a42 * b22 + a43 * b32 + a44 * b42;
+            te[14] = a41 * b13 + a42 * b23 + a43 * b33 + a44 * b43;
+            te[15] = a41 * b14 + a42 * b24 + a43 * b34 + a44 * b44;
+
+            return this;
+        }
+    }
+
+    function Vert(elements) {
+        this.elements = elements;
+
+        this.multiplyByMatrix = function (matrix4) {
+            var matrix = matrix4.elements;
+            var vec0 = this.elements[0], vec1 = this.elements[1], vec2 = this.elements[2], vec3 = this.elements[3];
+            this.elements[0] = (vec0 * matrix[0]) + (vec1 * matrix[4]) + (vec2 * matrix[8]) + (vec3 * matrix[12]);
+            this.elements[1] = (vec0 * matrix[1]) + (vec1 * matrix[5]) + (vec2 * matrix[9]) + (vec3 * matrix[13]);
+            this.elements[2] = (vec0 * matrix[2]) + (vec1 * matrix[6]) + (vec2 * matrix[10]) + (vec3 * matrix[14]);
+            this.elements[3] = (vec0 * matrix[3]) + (vec1 * matrix[7]) + (vec2 * matrix[11]) + (vec3 * matrix[15]);
+            return this;
+        };
+    }
+
+    function Cuboid(vertices) {
+        this.vertices = vertices;
+    }
+
+    function prepareCuboids() {
+
+        cuboids = [];
+        var cuboid1 = new Cuboid([
+            new Vert([1, -3, 5, 1]),
+            new Vert([3, -3, 5, 1]),
+            new Vert([1, -3, 4, 1]),
+            new Vert([3, -3, 4, 1]),
+            new Vert([1, 2, 5, 1]),
+            new Vert([3, 2, 5, 1]),
+            new Vert([1, 2, 4, 1]),
+            new Vert([3, 2, 4, 1])
+        ]);
+
+        var cuboid2 = new Cuboid([
+            new Vert([1, -3, 7, 1]),
+            new Vert([3, -3, 7, 1]),
+            new Vert([1, -3, 6, 1]),
+            new Vert([3, -3, 6, 1]),
+            new Vert([1, 2, 7, 1]),
+            new Vert([3, 2, 7, 1]),
+            new Vert([1, 2, 6, 1]),
+            new Vert([3, 2, 6, 1])
+        ]);
+
+        var cuboid3 = new Cuboid([
+            new Vert([-1, -3, 7, 1]),
+            new Vert([-3, -3, 7, 1]),
+            new Vert([-1, -3, 6, 1]),
+            new Vert([-3, -3, 6, 1]),
+            new Vert([-1, 2, 7, 1]),
+            new Vert([-3, 2, 7, 1]),
+            new Vert([-1, 2, 6, 1]),
+            new Vert([-3, 2, 6, 1])
+        ]);
+
+        var cuboid4 = new Cuboid([
+            new Vert([-1, -3, 5, 1]),
+            new Vert([-3, -3, 5, 1]),
+            new Vert([-1, -3, 4, 1]),
+            new Vert([-3, -3, 4, 1]),
+            new Vert([-1, 2, 5, 1]),
+            new Vert([-3, 2, 5, 1]),
+            new Vert([-1, 2, 4, 1]),
+            new Vert([-3, 2, 4, 1])
+        ]);
+
+        cuboids.push(cuboid1);
+        cuboids.push(cuboid2);
+        cuboids.push(cuboid3);
+        cuboids.push(cuboid4);
+    }
+
+    function render() {
+
+        var canvasNode = document.getElementById("viewport");
+        var ctx = canvasNode.getContext("2d");
+
+        var nearPlane = 0.1;
+        var farPlane = 100;
+        var viewportWidth = window.innerWidth;
+        var viewportHeight = window.innerHeight;
+
+        canvasNode.width = viewportWidth;
+        canvasNode.height = viewportHeight;
+
+        var w = 1 / Math.tan(fov * Math.PI / 2);
+        var h = 1 / Math.tan(fov * Math.PI / 2);
+        var Q = farPlane / (farPlane - nearPlane);
+
+        var viewportMatrix = new Matrix4([
+            viewportWidth / 2, 0, 0, 0,
+            0, -viewportHeight / 2, 0, 0,
+            0, 0, 1, 0,
+            viewportWidth / 2, viewportHeight / 2, 0, 1
+        ]);
+
+        var projectionMatrix = new Matrix4([
+            w, 0, 0, 0,
+            0, h, 0, 0,
+            0, 0, Q, 1,
+            0, 0, -nearPlane * Q, 0
+        ]);
+
+        var worldMatrix = new Matrix4([
+            1, 0, 0, 0,
+            0, 1, 0, 0,
+            0, 0, 1, 0,
+            0, 0, 0, 1
+        ]);
+
+        var rotationMatrix = new Matrix4([
+            1, 0, 0, 0,
+            0, 1, 0, 0,
+            0, 0, 1, 0,
+            0, 0, 0, 1
+        ]);
+
+//        rotationMatrix.multiplyMatrices(rotateXMatrix, rotateYMatrix);
+//        rotationMatrix.multiplyMatrices(rotationMatrix, rotateZMatrix);
+
+        worldMatrix.multiplyMatrices(worldMatrix, translationMatrix);
+        worldMatrix.multiplyMatrices(worldMatrix, globalRotationMatrix);
+
+        worldMatrix.multiplyMatrices(worldMatrix, projectionMatrix);
+        worldMatrix.multiplyMatrices(worldMatrix, viewportMatrix);
+
+        cuboids.forEach(function (cuboid) {
+            if (cuboid.vertices.length != 8) {
+                console.log("Cuboid does not have enough number of vertices!");
+                return;
+            }
+            var verticesForViewport = [];
+            var vertices = cuboid.vertices;
+
+            for (var i = 0; i < vertices.length; i++) {
+                var vertexForViewport = new Vert(vertices[i].elements.slice());
+                vertexForViewport.multiplyByMatrix(worldMatrix);
+
+                if (vertexForViewport.elements[3] < 0.001) return;
+                vertexForViewport.elements[0] /= vertexForViewport.elements[3];
+                vertexForViewport.elements[1] /= vertexForViewport.elements[3];
+                vertexForViewport.elements[2] /= vertexForViewport.elements[3];
+                vertexForViewport.elements[3] /= vertexForViewport.elements[3];
+                verticesForViewport.push(vertexForViewport);
+            }
+
+            // drawing lines here
+            ctx.beginPath();
+            ctx.moveTo(verticesForViewport[0].elements[0], verticesForViewport[0].elements[1]);
+            ctx.lineTo(verticesForViewport[1].elements[0], verticesForViewport[1].elements[1]);
+            ctx.lineTo(verticesForViewport[3].elements[0], verticesForViewport[3].elements[1]);
+            ctx.lineTo(verticesForViewport[2].elements[0], verticesForViewport[2].elements[1]);
+            ctx.lineTo(verticesForViewport[0].elements[0], verticesForViewport[0].elements[1]);
+            ctx.lineTo(verticesForViewport[4].elements[0], verticesForViewport[4].elements[1]);
+            ctx.lineTo(verticesForViewport[5].elements[0], verticesForViewport[5].elements[1]);
+            ctx.lineTo(verticesForViewport[7].elements[0], verticesForViewport[7].elements[1]);
+            ctx.lineTo(verticesForViewport[6].elements[0], verticesForViewport[6].elements[1]);
+            ctx.lineTo(verticesForViewport[4].elements[0], verticesForViewport[4].elements[1]);
+
+            ctx.moveTo(verticesForViewport[5].elements[0], verticesForViewport[5].elements[1]);
+            ctx.lineTo(verticesForViewport[1].elements[0], verticesForViewport[1].elements[1]);
+
+            ctx.moveTo(verticesForViewport[6].elements[0], verticesForViewport[6].elements[1]);
+            ctx.lineTo(verticesForViewport[2].elements[0], verticesForViewport[2].elements[1]);
+
+            ctx.moveTo(verticesForViewport[7].elements[0], verticesForViewport[7].elements[1]);
+            ctx.lineTo(verticesForViewport[3].elements[0], verticesForViewport[3].elements[1]);
+
+            ctx.stroke();
+        });
+    }
+
+    function init() {
+        prepareCuboids();
+        render();
+    }
+
+    function detectKey(e) {
+        if (e.keyCode == 37) {		    // key arrow left
+            changeTranslationMatrix([0.1, 0, 0, 0]);
+        } else if (e.keyCode == 38) {	// key arrow up
+            changeTranslationMatrix([0, 0, -0.1, 0]);
+        } else if (e.keyCode == 39) {	// key arrow right
+            changeTranslationMatrix([-0.1, 0, 0, 0]);
+        } else if (e.keyCode == 40) {	// key arrow down
+            changeTranslationMatrix([0, 0, 0.1, 0]);
+        } else if (e.keyCode == 65) {   // key a
+            changeRotationZ(-1);
+            globalRotationMatrix.multiplyMatrices(globalRotationMatrix, rotateZMatrix);
+            changeRotationZ(1);
+            inverseGlobalRotationMatrix.multiplyMatrices(inverseGlobalRotationMatrix, rotateZMatrix);
+        } else if (e.keyCode == 68) {   // key d
+            changeRotationZ(1);
+            globalRotationMatrix.multiplyMatrices(globalRotationMatrix, rotateZMatrix);
+            changeRotationZ(-1);
+            inverseGlobalRotationMatrix.multiplyMatrices(inverseGlobalRotationMatrix, rotateZMatrix);
+        } else if (e.keyCode == 69) {	// key e
+            changeRotationY(1);
+            globalRotationMatrix.multiplyMatrices(globalRotationMatrix, rotateYMatrix);
+            changeRotationY(-1);
+            inverseGlobalRotationMatrix.multiplyMatrices(inverseGlobalRotationMatrix, rotateYMatrix);
+        } else if (e.keyCode == 70) {   // key f
+            changeTranslationMatrix([0, 0.1, 0, 0]);
+        } else if (e.keyCode == 81) {	// key q
+            changeRotationY(-1);
+            globalRotationMatrix.multiplyMatrices(globalRotationMatrix, rotateYMatrix);
+            changeRotationY(1);
+            inverseGlobalRotationMatrix.multiplyMatrices(inverseGlobalRotationMatrix, rotateYMatrix);
+        } else if (e.keyCode == 82) {   // key r
+            changeTranslationMatrix([0, -0.1, 0, 0]);
+        } else if (e.keyCode == 83) {   // key s
+            changeRotationX(-1);
+            globalRotationMatrix.multiplyMatrices(globalRotationMatrix, rotateXMatrix);
+            changeRotationX(1);
+            inverseGlobalRotationMatrix.multiplyMatrices(inverseGlobalRotationMatrix, rotateXMatrix);
+        } else if (e.keyCode == 87) {   // key w
+            changeRotationX(1);
+            globalRotationMatrix.multiplyMatrices(globalRotationMatrix, rotateXMatrix);
+            changeRotationX(-1);
+            inverseGlobalRotationMatrix.multiplyMatrices(inverseGlobalRotationMatrix, rotateXMatrix);
+        } else if (e.keyCode == 88) {   // key x
+            zoomOut();
+        } else if (e.keyCode == 90) {   // key z
+            zoomIn();
+        }
+        render();
+
+    }
+
+    init();
+</script>
