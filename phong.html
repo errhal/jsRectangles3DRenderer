@@ -1,0 +1,300 @@
+<html>
+<body onkeydown="detectKey(event)" style="margin: 0;">
+<canvas id="viewport" style="width:100%; height: 100%;"></canvas>
+</body>
+</html>
+
+<script>
+
+    var fov = 0.45;
+    var globalPoints = [];
+    var globalPointsAfterProjection = [];
+    var isSphere = [];
+    var diffuseShading = [];
+    var specularShading = [];
+
+    // sphere config
+    var sphereCenter = new Vertex(-0.4, 0, 1, 1);
+    var radius = 0.2;
+
+    // plane config
+    var upperLeftCorner = new Vertex(0.2, 0.5, 1, 1);
+    var upperRightCorner = new Vertex(0.6, 0.5, 1, 1);
+    var lowerLeftCorner = new Vertex(0.2, -0.5, 1, 1);
+    var lowerRightCorner = new Vertex(0.6, -0.5, 1, 1);
+
+    var step = 0.0025;
+
+    var light = new Vertex(0, 1, 0, 1);
+    var red = 255, green = 255, blue = 210;
+
+    // Translations
+    var translationMatrix = new Matrix4([
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, 0,
+        0, 0, 0, 1
+    ]);
+
+    // Global rotation
+    var globalRotationMatrix = new Matrix4([
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, 0,
+        0, 0, 0, 1
+    ]);
+
+    function Matrix4(elements) {
+        this.elements = elements;
+
+        this.multiplyMatrices = function (a, b) {
+            var ae = a.elements;
+            var be = b.elements;
+            var te = this.elements;
+
+            var a11 = ae[0], a21 = ae[4], a31 = ae[8], a41 = ae[12];
+            var a12 = ae[1], a22 = ae[5], a32 = ae[9], a42 = ae[13];
+            var a13 = ae[2], a23 = ae[6], a33 = ae[10], a43 = ae[14];
+            var a14 = ae[3], a24 = ae[7], a34 = ae[11], a44 = ae[15];
+
+            var b11 = be[0], b21 = be[4], b31 = be[8], b41 = be[12];
+            var b12 = be[1], b22 = be[5], b32 = be[9], b42 = be[13];
+            var b13 = be[2], b23 = be[6], b33 = be[10], b43 = be[14];
+            var b14 = be[3], b24 = be[7], b34 = be[11], b44 = be[15];
+
+            te[0] = a11 * b11 + a12 * b21 + a13 * b31 + a14 * b41;
+            te[1] = a11 * b12 + a12 * b22 + a13 * b32 + a14 * b42;
+            te[2] = a11 * b13 + a12 * b23 + a13 * b33 + a14 * b43;
+            te[3] = a11 * b14 + a12 * b24 + a13 * b34 + a14 * b44;
+
+            te[4] = a21 * b11 + a22 * b21 + a23 * b31 + a24 * b41;
+            te[5] = a21 * b12 + a22 * b22 + a23 * b32 + a24 * b42;
+            te[6] = a21 * b13 + a22 * b23 + a23 * b33 + a24 * b43;
+            te[7] = a21 * b14 + a22 * b24 + a23 * b34 + a24 * b44;
+
+            te[8] = a31 * b11 + a32 * b21 + a33 * b31 + a34 * b41;
+            te[9] = a31 * b12 + a32 * b22 + a33 * b32 + a34 * b42;
+            te[10] = a31 * b13 + a32 * b23 + a33 * b33 + a34 * b43;
+            te[11] = a31 * b14 + a32 * b24 + a33 * b34 + a34 * b44;
+
+            te[12] = a41 * b11 + a42 * b21 + a43 * b31 + a44 * b41;
+            te[13] = a41 * b12 + a42 * b22 + a43 * b32 + a44 * b42;
+            te[14] = a41 * b13 + a42 * b23 + a43 * b33 + a44 * b43;
+            te[15] = a41 * b14 + a42 * b24 + a43 * b34 + a44 * b44;
+
+            return this;
+        }
+    }
+
+    function Vertex(x, y, z, w) {
+        this.x = x;
+        this.y = y;
+        this.z = z;
+        this.w = w;
+
+        this.multiplyByMatrix = function (matrix4) {
+            var matrix = matrix4.elements;
+            var vec0 = this.x, vec1 = this.y, vec2 = this.z, vec3 = this.w;
+            this.x = (vec0 * matrix[0]) + (vec1 * matrix[4]) + (vec2 * matrix[8]) + (vec3 * matrix[12]);
+            this.y = (vec0 * matrix[1]) + (vec1 * matrix[5]) + (vec2 * matrix[9]) + (vec3 * matrix[13]);
+            this.z = (vec0 * matrix[2]) + (vec1 * matrix[6]) + (vec2 * matrix[10]) + (vec3 * matrix[14]);
+            this.w = (vec0 * matrix[3]) + (vec1 * matrix[7]) + (vec2 * matrix[11]) + (vec3 * matrix[15]);
+            return this;
+        };
+    }
+
+    function preparePoints() {
+        renderSphere();
+        renderPlane();
+    }
+
+    function renderSphere() {
+        var centerX = sphereCenter.x, centerY = sphereCenter.y, centerZ = sphereCenter.z;
+
+        for (var i = centerX - radius; i <= centerX + radius; i += step) {
+            for (var j = centerY - radius; j <= centerY + radius; j += step) {
+                var z2 = Math.pow(radius, 2) - Math.pow(i - centerX, 2) - Math.pow(j - centerY, 2);
+                if (z2 >= 0) {
+                    var z = Math.sqrt(z2);
+                    globalPoints.push(new Vertex(i, j, centerZ - z, 1));
+                    isSphere.push(1);
+                }
+            }
+        }
+    }
+
+    function renderPlane() {
+        for (var i = upperLeftCorner.x; i <= upperRightCorner.x; i += step) {
+            for (var j = upperLeftCorner.y; j >= lowerLeftCorner.y; j -= step) {
+                globalPoints.push(new Vertex(i, j, upperLeftCorner.z, upperLeftCorner.w));
+                isSphere.push(0);
+            }
+        }
+    }
+
+    function render() {
+
+        var canvasNode = document.getElementById("viewport");
+
+        var nearPlane = 0.1;
+        var farPlane = 100;
+        var viewportWidth = window.innerWidth;
+        var viewportHeight = window.innerHeight;
+
+        canvasNode.width = viewportWidth;
+        canvasNode.height = viewportHeight;
+
+        var w = 1 / Math.tan(fov * Math.PI / 2);
+        var h = 1 / Math.tan(fov * Math.PI / 2);
+        var Q = farPlane / (farPlane - nearPlane);
+
+        var viewportMatrix = new Matrix4([
+            viewportWidth / 2, 0, 0, 0,
+            0, -viewportHeight / 2, 0, 0,
+            0, 0, 1, 0,
+            viewportWidth / 2, viewportHeight / 2, 0, 1
+        ]);
+
+        var projectionMatrix = new Matrix4([
+            w, 0, 0, 0,
+            0, h, 0, 0,
+            0, 0, Q, 1,
+            0, 0, -nearPlane * Q, 0
+        ]);
+
+        var worldMatrix = new Matrix4([
+            1, 0, 0, 0,
+            0, 1, 0, 0,
+            0, 0, 1, 0,
+            0, 0, 0, 1
+        ]);
+
+        worldMatrix.multiplyMatrices(worldMatrix, translationMatrix);
+        worldMatrix.multiplyMatrices(worldMatrix, globalRotationMatrix);
+
+        worldMatrix.multiplyMatrices(worldMatrix, projectionMatrix);
+        worldMatrix.multiplyMatrices(worldMatrix, viewportMatrix);
+
+        for (var pointIndex in globalPoints) {
+            var globalPoint = globalPoints[pointIndex];
+            var point = new Vertex(globalPoint.x, globalPoint.y, globalPoint.z, globalPoint.w);
+            point.multiplyByMatrix(worldMatrix);
+            globalPointsAfterProjection.push(point);
+        }
+    }
+
+    function phongShading() {
+
+        for (var pointIndex in globalPoints) {
+
+            var globalPoint = globalPoints[pointIndex];
+            var obsVec = new Vertex(0 - globalPoint.x, 0 - globalPoint.y, 0 - globalPoint.z, 1);
+            var lightVec = new Vertex(light.x - globalPoint.x, light.y - globalPoint.y, light.z - globalPoint.z, 1);
+
+            var dotObsLight = (obsVec.x * lightVec.x) + (obsVec.y * lightVec.y) + (obsVec.z * lightVec.z);
+
+            var denominatorA = Math.sqrt(Math.pow(obsVec.x, 2) + Math.pow(obsVec.y, 2) + Math.pow(obsVec.z, 2)) *
+                Math.sqrt(Math.pow(lightVec.x, 2) + Math.pow(lightVec.y, 2) + Math.pow(lightVec.z, 2));
+
+            var angleB = 0;
+            var denominatorB = 0;
+
+            var angleACos = dotObsLight / denominatorA;
+            angleACos = Math.min(angleACos, 1);
+
+            var specular = -1;
+            var diffuse = -1;
+
+            if (isSphere[pointIndex] === 1) {
+                var radVec = new Vertex(sphereCenter.x - globalPoint.x, sphereCenter.y - globalPoint.y, sphereCenter.z - globalPoint.z, 1);
+                var dotRadLight = (radVec.x * lightVec.x) + (radVec.y * lightVec.y) + (radVec.z * lightVec.z);
+
+                denominatorB = Math.sqrt(Math.pow(radVec.x, 2) + Math.pow(radVec.y, 2) + Math.pow(radVec.z, 2)) *
+                    Math.sqrt(Math.pow(lightVec.x, 2) + Math.pow(lightVec.y, 2) + Math.pow(lightVec.z, 2));
+                angleB = (2 * Math.PI - (Math.acos(dotRadLight / denominatorB) * 2)) / 2;
+            } else {
+
+                var planeVec = new Vertex(0, 0, 0 - globalPoint.z);
+                var dotPlaneLight = (planeVec.x * lightVec.x) + (planeVec.y * lightVec.y) + (planeVec.z * lightVec.z);
+
+                denominatorB = Math.sqrt(Math.pow(planeVec.x, 2) + Math.pow(planeVec.y, 2) + Math.pow(planeVec.z, 2)) *
+                    Math.sqrt(Math.pow(lightVec.x, 2) + Math.pow(lightVec.y, 2) + Math.pow(lightVec.z, 2));
+
+                angleB = Math.acos(dotPlaneLight / denominatorB) * 2;
+            }
+
+            if (angleB >= Math.PI) diffuse = 0;
+
+            var angleA = dotObsLight > 0 ? -Math.acos(angleACos) : Math.acos(angleACos);
+            angleA -= (2 * angleB);
+            if (angleA >= Math.PI) specular = 0;
+
+
+            if (specular == -1) specular = Math.pow(Math.cos(angleA), 3);
+
+            if (diffuse == -1) diffuse = (Math.cos(angleB) + 1) / 2;
+
+            diffuseShading[pointIndex] = diffuse;
+            specularShading[pointIndex] = specular * 0.5;
+
+            var tempRed = Math.floor(red * specular);
+        }
+    }
+
+    function display() {
+
+        for (var pointIndex in globalPointsAfterProjection) {
+            var canvasNode = document.getElementById("viewport");
+            var ctx = canvasNode.getContext("2d");
+
+            var globalPointAfterProjection = globalPointsAfterProjection[pointIndex];
+            var point = new Vertex(globalPointAfterProjection.x, globalPointAfterProjection.y, globalPointAfterProjection.z, globalPointAfterProjection.w);
+            ctx.fillStyle = "rgb(" + Math.floor(red * diffuseShading[pointIndex]) + "," +
+                Math.floor(green * specularShading[pointIndex]) + "," +
+                Math.floor(blue * specularShading[pointIndex]) + ")";
+
+            if (point.w < 0.0001) {
+                continue;
+            }
+
+            point.x /= point.w;
+            point.y /= point.w;
+            point.z /= point.w;
+            point.w /= point.w;
+            ctx.fillRect(point.x, point.y, 7, 7);
+            ctx.stroke();
+        }
+    }
+
+    function init() {
+        preparePoints();
+        render();
+        phongShading();
+        display();
+    }
+
+    function detectKey(e) {
+        var isMatched = 1;
+        if (e.keyCode == 37) {		    // key arrow left
+            light.x -= 0.2;
+        } else if (e.keyCode == 38) {	// key arrow up
+            light.y += 0.2;
+        } else if (e.keyCode == 39) {	// key arrow right
+            light.x += 0.2;
+        } else if (e.keyCode == 40) {	// key arrow down
+            light.y -= 0.2;
+        } else if (e.keyCode == 70) {   // key f
+            light.z -= 0.2;
+        } else if (e.keyCode == 82) {   // key r
+            light.z += 0.2;
+        } else {
+            isMatched = 0;
+        }
+        if (isMatched) {
+            phongShading();
+            display();
+        }
+    }
+
+    init();
+</script>
