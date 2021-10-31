@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset=utf-8>
+    <title>My first three.js app</title>
+    <style>
+        body {
+            margin: 0;
+        }
+
+        canvas {
+            width: 100%;
+            height: 100%
+        }
+    </style>
+</head>
+<body onkeydown="detectKey(event)">
+<script src="build/three.js"></script>
+<script>
+    this.moveVector = new THREE.Vector3(0, 0, 0);
+    this.rotationVector = new THREE.Vector3(0, 0, 0);
+    this.tmpQuaternion = new THREE.Quaternion();
+
+    var scene = new THREE.Scene();
+
+    scene.background = new THREE.Color(0xffffff);
+    var camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+    var renderer = new THREE.WebGLRenderer();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    var geometry = new THREE.BoxGeometry(1, 1, 1);
+    var material = new THREE.MeshBasicMaterial({color: 0xee0000});
+    var cube = new THREE.Mesh(geometry, material);
+    console.log(cube)
+    scene.add(cube);
+
+    camera.position.z = 5;
+    renderer.render(scene, camera);
+    /*var animate = function () {
+     requestAnimationFrame( animate );
+
+     cube.rotation.x += 0.1;
+     cube.rotation.y += 0.1;
+
+     renderer.render(scene, camera);
+     };
+
+     animate();
+     */
+    function detectKey(e) {
+        console.log(e);
+        console.log(camera);
+        if (e.keyCode == 37) {		// key arrow left
+            camera.translateX(-1);
+            renderer.render(scene, camera);
+        } else if (e.keyCode == 38) {	// key arrow up
+            camera.translateZ(-1);
+            renderer.render(scene, camera);
+        } else if (e.keyCode == 39) {	// key arrow right
+            camera.translateX(1);
+            renderer.render(scene, camera);
+        } else if (e.keyCode == 40) {	// key arrow down
+            camera.translateZ(1);
+            renderer.render(scene, camera);
+        } else if (e.keyCode == 65) {
+            camera.zoom += 0.25;
+            camera.updateProjectionMatrix();
+            renderer.render(scene, camera);
+        } else if (e.keyCode == 69) {	// key e
+            camera.rotateY(-0.25);
+            renderer.render(scene, camera);
+        } else if (e.keyCode == 81) {	// key q
+            camera.rotateY(0.25);
+            renderer.render(scene, camera);
+        } else if (e.keyCode == 90) {
+            if (camera.zoom == 1) return;
+            camera.zoom -= 0.25;
+            camera.updateProjectionMatrix();
+            renderer.render(scene, camera);
+        }
+
+        //this.tmpQuaternion.set( this.rotationVector.x * rotMult, this.rotationVector.y * rotMult, this.rotationVector.z * rotMult, 1 ).normalize();
+        //this.object.quaternion.multiply( this.tmpQuaternion );
+
+        // expose the rotation vector for convenience
+        //this.object.rotation.setFromQuaternion( this.object.quaternion, this.object.rotation.order );
+    }
+
+    this.updateRotationVector = function () {
+
+        this.rotationVector.x = ( -this.moveState.pitchDown + this.moveState.pitchUp );
+        this.rotationVector.y = ( -this.moveState.yawRight + this.moveState.yawLeft );
+        this.rotationVector.z = ( -this.moveState.rollRight + this.moveState.rollLeft );
+
+    };
+</script>
+</body>
+</html>
